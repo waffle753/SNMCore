@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
@@ -255,6 +256,7 @@ export default function LoginScreen() {
                 <TouchableOpacity
                   activeOpacity={0.85}
                   style={styles.loginButton}
+                  onPress={() => router.push('/dashboard')}
                 >
                   <Text style={styles.loginText}>
                     Login
