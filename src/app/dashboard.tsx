@@ -16,6 +16,7 @@ import { router } from 'expo-router';
 import BottomNavigation from '../components/BottomNavigation';
 import { colors } from '../constants/theme';
 import { quickAccessItems, schoolEvents, upcomingEvents } from '../data/dashboardData';
+import { getAuthUser } from '../data/authSession';
 
 const RED = colors.RED;
 const GOLD = colors.GOLD;
@@ -28,6 +29,7 @@ const TEXT_GRAY = colors.TEXT_GRAY;
 
 export default function DashboardScreen() {
   const [selectedEvent, setSelectedEvent] = useState(0);
+  const currentUser = getAuthUser();
 
   const event = schoolEvents[selectedEvent];
 
@@ -254,6 +256,23 @@ export default function DashboardScreen() {
           </View>
 
         </View>
+
+        {currentUser?.role === 'admin' && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.adminMenuCard}
+            onPress={() => router.push('/admin-control')}
+          >
+            <View style={styles.adminMenuIcon}>
+              <Ionicons name="settings-outline" size={22} color={RED} />
+            </View>
+            <View style={styles.adminMenuText}>
+              <Text style={styles.adminMenuTitle}>Admin Control Panel</Text>
+              <Text style={styles.adminMenuSubtitle}>Manage students, events, and requests</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={RED} />
+          </TouchableOpacity>
+        )}
 
         {/* ===================================================
             SCHOOL EVENTS TITLE
@@ -926,6 +945,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
+  },
+
+  adminMenuCard: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: WHITE,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: RED,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 9,
+    elevation: 3,
+  },
+
+  adminMenuIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: SOFT_GOLD,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  adminMenuText: {
+    flex: 1,
+    marginLeft: 11,
+  },
+
+  adminMenuTitle: {
+    color: DARK,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  adminMenuSubtitle: {
+    marginTop: 3,
+    color: TEXT_GRAY,
+    fontSize: 10,
+    fontWeight: '600',
   },
 
   sectionTitle: {

@@ -6,6 +6,7 @@ import {
   TextInput,
   StyleSheet,
   Animated,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
@@ -15,11 +16,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { AuthUser, setAuthSession } from '../data/authSession';
 
 const { width } = Dimensions.get('window');
 
 export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const { height: windowHeight } = useWindowDimensions();
   const isCompact = windowHeight < 720;
 
@@ -30,6 +35,44 @@ export default function LoginScreen() {
   const formTranslate = useRef(new Animated.Value(20)).current;
 
   const buttonScale = useRef(new Animated.Value(0.96)).current;
+
+  const signIn = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert('Missing details', 'Enter your email and password to continue.');
+      return;
+    }
+
+    setIsSigningIn(true);
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL || 'http://10.1.1.181:4000'}/api/auth/login`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        }
+      );
+      const responseText = await response.text();
+      let result: { message?: string; token: string; user: AuthUser };
+      try {
+        result = JSON.parse(responseText);
+      } catch {
+        throw new Error(`Backend returned a non-JSON response (${response.status}).`);
+      }
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Unable to sign in.');
+      }
+
+      setAuthSession(result);
+
+      router.replace('/dashboard');
+    } catch (error) {
+      Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Unable to connect to the backend.');
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
 
   useEffect(() => {
     Animated.sequence([
@@ -179,10 +222,13 @@ export default function LoginScreen() {
 
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your student ID"
+                  placeholder="Enter your email"
                   placeholderTextColor="#999"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  keyboardType="email-address"
+                  value={email}
+                  onChangeText={setEmail}
                 />
 
               </View>
@@ -209,6 +255,8 @@ export default function LoginScreen() {
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  value={password}
+                  onChangeText={setPassword}
                 />
 
                 <TouchableOpacity
@@ -256,10 +304,11 @@ export default function LoginScreen() {
                 <TouchableOpacity
                   activeOpacity={0.85}
                   style={styles.loginButton}
-                  onPress={() => router.push('/dashboard')}
+                  onPress={signIn}
+                  disabled={isSigningIn}
                 >
                   <Text style={styles.loginText}>
-                    Login
+                    {isSigningIn ? 'Signing in...' : 'Login'}
                   </Text>
 
                   <Ionicons

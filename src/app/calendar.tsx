@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,67 +7,150 @@ import {
   TouchableOpacity,
   StatusBar,
   Image,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import BottomNavigation from '../components/BottomNavigation';
+import { colors } from '../constants/theme';
 
-const RED = '#8F1728';
-const GOLD = '#D5A928';
-const LIGHT_GOLD = '#F4C84A';
-const WHITE = '#FFFFFF';
-const CREAM = '#FFF8F0';
-const SOFT_GOLD = '#FFF7D9';
-const DARK = '#241619';
-const TEXT_GRAY = '#756A6A';
+const RED = colors.RED;
+const GOLD = colors.GOLD;
+const WHITE = colors.WHITE;
+const CREAM = colors.CREAM;
+const SOFT_GOLD = colors.SOFT_GOLD;
+const DARK = colors.DARK;
+const TEXT_GRAY = colors.TEXT_GRAY;
 
 const calendarDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-const monthDates = [31, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
+const today = new Date();
 
-const events = [
+type CalendarEvent = {
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+};
+
+const initialEvents: CalendarEvent[] = [
   {
     title: 'Student Orientation',
-    date: 'Sep 15',
+    date: '2026-09-15',
     time: '8:00 AM',
     location: 'School Auditorium',
   },
   {
     title: 'Midterm Examination',
-    date: 'Sep 20',
+    date: '2026-09-20',
     time: '8:00 AM',
     location: 'Assigned Classrooms',
   },
 ];
 
+const dateKey = (date: Date) => date.toISOString().slice(0, 10);
+
 export default function CalendarScreen() {
+  const [visibleMonth, setVisibleMonth] = useState(
+    new Date(today.getFullYear(), today.getMonth(), 1)
+  );
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [events, setEvents] = useState(initialEvents);
+  const [isAddModalVisible, setAddModalVisible] = useState(false);
+  const [newEventTitle, setNewEventTitle] = useState('');
+  const [newEventTime, setNewEventTime] = useState('8:00 AM');
+  const [newEventLocation, setNewEventLocation] = useState('');
+
+  const monthLabel = visibleMonth.toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  });
+  const monthPrefix = `${visibleMonth.getFullYear()}-${String(
+    visibleMonth.getMonth() + 1
+  ).padStart(2, '0')}`;
+  const monthDates = useMemo(() => {
+    const firstDay = new Date(
+      visibleMonth.getFullYear(),
+      visibleMonth.getMonth(),
+      1
+    ).getDay();
+    const daysInMonth = new Date(
+      visibleMonth.getFullYear(),
+      visibleMonth.getMonth() + 1,
+      0
+    ).getDate();
+
+    return [
+      ...Array.from({ length: firstDay }, () => null),
+      ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+    ];
+  }, [visibleMonth]);
+  const selectedEvents = events.filter((event) => event.date === dateKey(selectedDate));
+  const monthEvents = events.filter((event) => event.date.startsWith(monthPrefix));
+
+  const changeMonth = (amount: number) => {
+    setVisibleMonth(
+      (currentMonth) =>
+        new Date(currentMonth.getFullYear(), currentMonth.getMonth() + amount, 1)
+    );
+  };
+
+  const goToToday = () => {
+    setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+    setSelectedDate(today);
+  };
+
+  const addEvent = () => {
+    if (!newEventTitle.trim()) {
+      return;
+    }
+
+    setEvents((currentEvents) => [
+      ...currentEvents,
+      {
+        title: newEventTitle.trim(),
+        date: dateKey(selectedDate),
+        time: newEventTime.trim() || '8:00 AM',
+        location: newEventLocation.trim() || 'School Campus',
+      },
+    ]);
+    setNewEventTitle('');
+    setNewEventTime('8:00 AM');
+    setNewEventLocation('');
+    setAddModalVisible(false);
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={WHITE} />
 
+      <View style={styles.backgroundLayer}>
+        <View style={styles.goldCircleLarge} />
+        <View style={styles.redCircleLarge} />
+        <View style={styles.goldCircleSmall} />
+        <View style={styles.redCircleSmall} />
+        <View style={styles.backgroundSoftOverlay} />
+      </View>
+
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={20} color={RED} />
-        </TouchableOpacity>
+        <View style={styles.brandContainer}>
+          <View style={styles.logoWrapper}>
+            <Image
+              source={require('../../assets/images/school-logo.png')}
+              style={styles.schoolLogo}
+              resizeMode="contain"
+            />
+          </View>
 
-        <View style={styles.headerTitleWrap}>
-          <View style={styles.brandContainer}>
-            <View style={styles.logoWrapper}>
-              <Image
-                source={require('../../assets/images/school-logo.png')}
-                style={styles.schoolLogo}
-                resizeMode="contain"
-              />
-            </View>
-
-            <View style={styles.brandTextContainer}>
-              <Text style={styles.headerLabel}>Calendar</Text>
-              <Text style={styles.headerTitle}>September 2026</Text>
-            </View>
+          <View style={styles.brandTextContainer}>
+            <Text style={styles.appName}>SNMCore</Text>
+            <Text style={styles.appSubtitle}>Every Date. Every Event. One Place.</Text>
           </View>
         </View>
 
-        <TouchableOpacity style={styles.addButton}>
-          <Ionicons name="add" size={22} color={WHITE} />
+        <TouchableOpacity activeOpacity={0.8} style={styles.notificationButton}>
+          <Ionicons name="notifications-outline" size={22} color={RED} />
+          <View style={styles.notificationDot} />
         </TouchableOpacity>
       </View>
 
@@ -75,7 +158,27 @@ export default function CalendarScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, { paddingBottom: 100 }]}
       >
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>Calendar</Text>
+            <Text style={styles.sectionSubtitle}>{monthLabel}</Text>
+          </View>
+          <TouchableOpacity activeOpacity={0.7} onPress={goToToday}>
+            <Text style={styles.viewAllText}>Today</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.calendarCard}>
+          <View style={styles.monthNavigation}>
+            <TouchableOpacity style={styles.monthButton} onPress={() => changeMonth(-1)}>
+              <Ionicons name="chevron-back" size={16} color={RED} />
+            </TouchableOpacity>
+            <Text style={styles.monthTitle}>{monthLabel}</Text>
+            <TouchableOpacity style={styles.monthButton} onPress={() => changeMonth(1)}>
+              <Ionicons name="chevron-forward" size={16} color={RED} />
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.calendarWeekRow}>
             {calendarDays.map((day, index) => (
               <Text
@@ -91,42 +194,69 @@ export default function CalendarScreen() {
           </View>
 
           <View style={styles.calendarGrid}>
-            {monthDates.map((day, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.dayCell,
-                  day === 12 && styles.dayCellActive,
-                  day === 15 && styles.dayCellEvent,
-                ]}
-              >
-                <Text
+            {monthDates.map((day, index) => {
+              if (!day) {
+                return <View key={`empty-${index}`} style={styles.dayCell} />;
+              }
+
+              const cellDate = new Date(
+                visibleMonth.getFullYear(),
+                visibleMonth.getMonth(),
+                day
+              );
+              const cellKey = dateKey(cellDate);
+              const hasEvent = events.some((event) => event.date === cellKey);
+              const isSelected = cellKey === dateKey(selectedDate);
+
+              return (
+                <TouchableOpacity
+                  key={cellKey}
+                  activeOpacity={0.75}
+                  onPress={() => setSelectedDate(cellDate)}
                   style={[
-                    styles.dayText,
-                    day === 12 && styles.dayTextActive,
-                    day === 15 && styles.dayTextEvent,
+                    styles.dayCell,
+                    isSelected && styles.dayCellActive,
+                    hasEvent && !isSelected && styles.dayCellEvent,
                   ]}
                 >
-                  {day}
-                </Text>
-              </View>
-            ))}
+                  <Text
+                    style={[
+                      styles.dayText,
+                      isSelected && styles.dayTextActive,
+                      hasEvent && !isSelected && styles.dayTextEvent,
+                    ]}
+                  >
+                    {day}
+                  </Text>
+                  {hasEvent && <View style={styles.eventIndicator} />}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Events</Text>
-          <TouchableOpacity>
-            <Text style={styles.viewAllText}>Today</Text>
+          <View>
+            <Text style={styles.sectionTitle}>Events</Text>
+            <Text style={styles.sectionSubtitle}>
+              {selectedEvents.length
+                ? `Selected date, ${selectedEvents.length} event${selectedEvents.length === 1 ? '' : 's'}`
+                : `${monthEvents.length} event${monthEvents.length === 1 ? '' : 's'} this month`}
+            </Text>
+          </View>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => setAddModalVisible(true)}>
+            <Text style={styles.viewAllText}>Add event</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.eventsList}>
-          {events.map((item, index) => (
-            <View key={index} style={styles.eventItem}>
+          {(selectedEvents.length ? selectedEvents : monthEvents).map((item) => (
+            <View key={`${item.date}-${item.title}`} style={styles.eventItem}>
               <View style={styles.dateBadge}>
-                <Text style={styles.dateBadgeMonth}>SEP</Text>
-                <Text style={styles.dateBadgeDay}>{item.date.split(' ')[1]}</Text>
+                <Text style={styles.dateBadgeMonth}>
+                  {new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                </Text>
+                <Text style={styles.dateBadgeDay}>{item.date.slice(-2)}</Text>
               </View>
 
               <View style={styles.eventBody}>
@@ -144,8 +274,59 @@ export default function CalendarScreen() {
               </View>
             </View>
           ))}
+          {!selectedEvents.length && !monthEvents.length && (
+            <View style={styles.emptyState}>
+              <Ionicons name="calendar-outline" size={24} color={GOLD} />
+              <Text style={styles.emptyStateText}>No events for this month.</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={isAddModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAddModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add event</Text>
+              <TouchableOpacity onPress={() => setAddModalVisible(false)}>
+                <Ionicons name="close" size={22} color={TEXT_GRAY} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalDate}>
+              {selectedDate.toLocaleDateString('en-US', { dateStyle: 'full' })}
+            </Text>
+            <TextInput
+              value={newEventTitle}
+              onChangeText={setNewEventTitle}
+              placeholder="Event title"
+              placeholderTextColor={TEXT_GRAY}
+              style={styles.input}
+            />
+            <TextInput
+              value={newEventTime}
+              onChangeText={setNewEventTime}
+              placeholder="Time"
+              placeholderTextColor={TEXT_GRAY}
+              style={styles.input}
+            />
+            <TextInput
+              value={newEventLocation}
+              onChangeText={setNewEventLocation}
+              placeholder="Location"
+              placeholderTextColor={TEXT_GRAY}
+              style={styles.input}
+            />
+            <TouchableOpacity style={styles.saveButton} onPress={addEvent}>
+              <Text style={styles.saveButtonText}>Save event</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <BottomNavigation
         activeTab="calendar"
@@ -161,6 +342,51 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: CREAM,
   },
+  backgroundLayer: {
+    ...StyleSheet.absoluteFill,
+    overflow: 'hidden',
+    backgroundColor: CREAM,
+  },
+  goldCircleLarge: {
+    position: 'absolute',
+    width: 360,
+    height: 360,
+    borderRadius: 180,
+    top: -130,
+    right: -150,
+    backgroundColor: 'rgba(244, 200, 74, 0.20)',
+  },
+  redCircleLarge: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    top: 180,
+    left: -190,
+    backgroundColor: 'rgba(143, 23, 40, 0.08)',
+  },
+  goldCircleSmall: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    bottom: 80,
+    right: -90,
+    backgroundColor: 'rgba(213, 169, 40, 0.13)',
+  },
+  redCircleSmall: {
+    position: 'absolute',
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    bottom: -30,
+    left: -45,
+    backgroundColor: 'rgba(143, 23, 40, 0.07)',
+  },
+  backgroundSoftOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+  },
   header: {
     height: 74,
     paddingHorizontal: 20,
@@ -170,18 +396,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(143, 23, 40, 0.08)',
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: SOFT_GOLD,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitleWrap: {
-    flex: 1,
-    alignItems: 'center',
   },
   brandContainer: {
     flexDirection: 'row',
@@ -207,44 +421,76 @@ const styles = StyleSheet.create({
     height: 30,
   },
   brandTextContainer: {
-    marginLeft: 10,
-    alignItems: 'flex-start',
+    marginLeft: 11,
   },
-  headerLabel: {
-    fontSize: 9,
+  appName: {
+    fontSize: 20,
     fontWeight: '800',
     color: RED,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    letterSpacing: -0.5,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: DARK,
-    letterSpacing: -0.4,
+  appSubtitle: {
+    marginTop: 1,
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    color: GOLD,
   },
-  addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: RED,
+  notificationButton: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: WHITE,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: RED,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 7,
+    elevation: 3,
+  },
+  notificationDot: {
+    position: 'absolute',
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: GOLD,
+    right: 8,
+    top: 8,
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingTop: 5,
     paddingBottom: 30,
   },
   calendarCard: {
     backgroundColor: WHITE,
-    borderRadius: 24,
-    padding: 16,
+    borderRadius: 18,
+    padding: 14,
     shadowColor: RED,
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 4,
+  },
+  monthNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  monthButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: SOFT_GOLD,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: DARK,
   },
   calendarWeekRow: {
     flexDirection: 'row',
@@ -269,10 +515,11 @@ const styles = StyleSheet.create({
   },
   dayCell: {
     width: '12.5%',
-    height: 28,
+    height: 34,
     borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
   dayCellActive: {
     backgroundColor: RED,
@@ -293,15 +540,23 @@ const styles = StyleSheet.create({
     color: RED,
     fontWeight: '800',
   },
+  eventIndicator: {
+    position: 'absolute',
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    bottom: 3,
+    backgroundColor: GOLD,
+  },
   sectionHeader: {
-    marginTop: 18,
+    marginTop: 14,
     marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
     color: DARK,
   },
@@ -310,8 +565,31 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: RED,
   },
+  sectionSubtitle: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '700',
+    color: TEXT_GRAY,
+  },
   eventsList: {
     gap: 10,
+  },
+  emptyState: {
+    backgroundColor: WHITE,
+    borderRadius: 18,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: RED,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  emptyStateText: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    color: TEXT_GRAY,
   },
   eventItem: {
     backgroundColor: WHITE,
@@ -364,5 +642,57 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '600',
     color: TEXT_GRAY,
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(36, 22, 25, 0.35)',
+  },
+  modalCard: {
+    backgroundColor: CREAM,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: 30,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: DARK,
+  },
+  modalDate: {
+    marginTop: 4,
+    marginBottom: 14,
+    fontSize: 11,
+    fontWeight: '700',
+    color: TEXT_GRAY,
+  },
+  input: {
+    height: 46,
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: WHITE,
+    color: DARK,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  saveButton: {
+    height: 48,
+    marginTop: 4,
+    borderRadius: 14,
+    backgroundColor: RED,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveButtonText: {
+    color: WHITE, 
+    fontSize: 13,
+    fontWeight: '900',
   },
 });
