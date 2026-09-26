@@ -2,11 +2,13 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/theme';
+import { getAuthUser } from '../data/authSession';
 
 type BottomNavigationProps = {
-  activeTab?: 'home' | 'calendar' | 'news' | 'profile';
+  activeTab?: 'home' | 'calendar' | 'admin' | 'news' | 'profile';
   onHomePress?: () => void;
   onCalendarPress?: () => void;
+  onAdminPress?: () => void;
   onNewsPress?: () => void;
   onProfilePress?: () => void;
 };
@@ -15,13 +17,16 @@ export default function BottomNavigation({
   activeTab = 'home',
   onHomePress,
   onCalendarPress,
+  onAdminPress,
   onNewsPress,
   onProfilePress,
 }: BottomNavigationProps) {
   const isHome = activeTab === 'home';
   const isCalendar = activeTab === 'calendar';
+  const isActiveAdmin = activeTab === 'admin';
   const isNews = activeTab === 'news';
   const isProfile = activeTab === 'profile';
+  const isAdmin = getAuthUser()?.role === 'admin';
 
   return (
     <View style={styles.bottomNavigation}>
@@ -50,6 +55,15 @@ export default function BottomNavigation({
         </View>
         <Text style={isCalendar ? styles.navTextActive : styles.navText}>Calendar</Text>
       </TouchableOpacity>
+
+      {isAdmin && (
+        <TouchableOpacity activeOpacity={0.8} style={[styles.navItem, styles.adminNavItem]} onPress={onAdminPress}>
+          <View style={[styles.navIcon, styles.adminNavIcon, isActiveAdmin && styles.navIconActive]}>
+            <Ionicons name="settings-outline" size={23} color={isActiveAdmin ? colors.WHITE : colors.TEXT_GRAY} />
+          </View>
+          <Text style={isActiveAdmin ? styles.navTextActive : styles.navText}>Admin</Text>
+        </TouchableOpacity>
+      )}
 
       <TouchableOpacity activeOpacity={0.8} style={styles.navItem} onPress={onNewsPress}>
         <View style={[styles.navIcon, isNews && styles.navIconActive]}>
@@ -100,6 +114,14 @@ const styles = StyleSheet.create({
     height: 60,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  adminNavItem: {
+    width: 78,
+  },
+  adminNavIcon: {
+    width: 46,
+    height: 40,
+    borderRadius: 15,
   },
   navIcon: {
     width: 39,

@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   StyleSheet,
@@ -7,13 +8,12 @@ import {
   TouchableOpacity,
   StatusBar,
   Image,
-  Modal,
-  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import BottomNavigation from '../components/BottomNavigation';
 import { colors } from '../constants/theme';
+import { getAuthToken } from '../data/authSession';
 
 const RED = colors.RED;
 const GOLD = colors.GOLD;
@@ -27,39 +27,55 @@ const calendarDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const today = new Date();
 
 type CalendarEvent = {
-  title: string;
-  date: string;
-  time: string;
-  location: string;
+  event_id: number;
+  event_name: string;
+  start_datetime: string;
+  end_datetime: string;
+  location_name: string | null;
+  status: string;
+  facility_name?: string | null;
+  area_name?: string | null;
+  location_type?: string | null;
 };
 
-const initialEvents: CalendarEvent[] = [
-  {
-    title: 'Student Orientation',
-    date: '2026-09-15',
-    time: '8:00 AM',
-    location: 'School Auditorium',
-  },
-  {
-    title: 'Midterm Examination',
-    date: '2026-09-20',
-    time: '8:00 AM',
-    location: 'Assigned Classrooms',
-  },
-];
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.1.1.235:4000';
 
-const dateKey = (date: Date) => date.toISOString().slice(0, 10);
+const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const localDateKey = (value: string) => value.slice(0, 10);
+const formatTime = (value: string) => {
+  const date = new Date(value.replace(' ', 'T'));
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+};
+const eventLocation = (event: CalendarEvent) => event.location_type === 'indoor'
+  ? `${event.facility_name || 'Facility'}${event.area_name ? ` - ${event.area_name}` : ' - Entire facility'}`
+  : event.location_name || 'Location not set';
 
 export default function CalendarScreen() {
   const [visibleMonth, setVisibleMonth] = useState(
     new Date(today.getFullYear(), today.getMonth(), 1)
   );
   const [selectedDate, setSelectedDate] = useState(today);
-  const [events, setEvents] = useState(initialEvents);
-  const [isAddModalVisible, setAddModalVisible] = useState(false);
-  const [newEventTitle, setNewEventTitle] = useState('');
-  const [newEventTime, setNewEventTime] = useState('8:00 AM');
-  const [newEventLocation, setNewEventLocation] = useState('');
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  const loadEvents = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/events`, {
+        headers: { Authorization: `Bearer ${getAuthToken() || ''}` },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Unable to load events.');
+      setEvents(result);
+      setLoadError('');
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Unable to load events.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void loadEvents(); }, []);
 
   const monthLabel = visibleMonth.toLocaleDateString('en-US', {
     month: 'long',
@@ -85,8 +101,12 @@ export default function CalendarScreen() {
       ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
     ];
   }, [visibleMonth]);
-  const selectedEvents = events.filter((event) => event.date === dateKey(selectedDate));
-  const monthEvents = events.filter((event) => event.date.startsWith(monthPrefix));
+  const selectedEvents = events.filter((event) => localDateKey(event.start_datetime) === dateKey(selectedDate));
+  const monthEvents = events.filter((event) => localDateKey(event.start_datetime).startsWith(monthPrefix));
+  const isSelectedDateInVisibleMonth =
+    selectedDate.getFullYear() === visibleMonth.getFullYear() &&
+    selectedDate.getMonth() === visibleMonth.getMonth();
+  const displayedEvents = isSelectedDateInVisibleMonth ? selectedEvents : monthEvents;
 
   const changeMonth = (amount: number) => {
     setVisibleMonth(
@@ -98,26 +118,6 @@ export default function CalendarScreen() {
   const goToToday = () => {
     setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
     setSelectedDate(today);
-  };
-
-  const addEvent = () => {
-    if (!newEventTitle.trim()) {
-      return;
-    }
-
-    setEvents((currentEvents) => [
-      ...currentEvents,
-      {
-        title: newEventTitle.trim(),
-        date: dateKey(selectedDate),
-        time: newEventTime.trim() || '8:00 AM',
-        location: newEventLocation.trim() || 'School Campus',
-      },
-    ]);
-    setNewEventTitle('');
-    setNewEventTime('8:00 AM');
-    setNewEventLocation('');
-    setAddModalVisible(false);
   };
 
   return (
@@ -205,7 +205,7 @@ export default function CalendarScreen() {
                 day
               );
               const cellKey = dateKey(cellDate);
-              const hasEvent = events.some((event) => event.date === cellKey);
+              const hasEvent = events.some((event) => localDateKey(event.start_datetime) === cellKey);
               const isSelected = cellKey === dateKey(selectedDate);
 
               return (
@@ -239,99 +239,59 @@ export default function CalendarScreen() {
           <View>
             <Text style={styles.sectionTitle}>Events</Text>
             <Text style={styles.sectionSubtitle}>
-              {selectedEvents.length
-                ? `Selected date, ${selectedEvents.length} event${selectedEvents.length === 1 ? '' : 's'}`
+              {isSelectedDateInVisibleMonth
+                ? `${selectedEvents.length} event${selectedEvents.length === 1 ? '' : 's'} on selected date`
                 : `${monthEvents.length} event${monthEvents.length === 1 ? '' : 's'} this month`}
             </Text>
           </View>
-          <TouchableOpacity activeOpacity={0.7} onPress={() => setAddModalVisible(true)}>
-            <Text style={styles.viewAllText}>Add event</Text>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/admin-control')}>
+            <Text style={styles.viewAllText}>Admin events</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.eventsList}>
-          {(selectedEvents.length ? selectedEvents : monthEvents).map((item) => (
-            <View key={`${item.date}-${item.title}`} style={styles.eventItem}>
+          {displayedEvents.map((item) => (
+            <View key={item.event_id} style={styles.eventItem}>
               <View style={styles.dateBadge}>
                 <Text style={styles.dateBadgeMonth}>
-                  {new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                  {new Date(`${localDateKey(item.start_datetime)}T12:00:00`).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
                 </Text>
-                <Text style={styles.dateBadgeDay}>{item.date.slice(-2)}</Text>
+                <Text style={styles.dateBadgeDay}>{localDateKey(item.start_datetime).slice(-2)}</Text>
               </View>
 
               <View style={styles.eventBody}>
-                <Text style={styles.eventTitle}>{item.title}</Text>
+                <Text style={styles.eventTitle}>{item.event_name}</Text>
 
                 <View style={styles.metaRow}>
                   <Ionicons name="time-outline" size={13} color={GOLD} />
-                  <Text style={styles.metaText}>{item.time}</Text>
+                  <Text style={styles.metaText}>{formatTime(item.start_datetime)} - {formatTime(item.end_datetime)}</Text>
                 </View>
 
                 <View style={styles.metaRow}>
                   <Ionicons name="location-outline" size={13} color={GOLD} />
-                  <Text style={styles.metaText}>{item.location}</Text>
+                  <Text style={styles.metaText}>{eventLocation(item)}</Text>
                 </View>
+                <Text style={styles.eventStatus}>{item.status}</Text>
               </View>
             </View>
           ))}
-          {!selectedEvents.length && !monthEvents.length && (
+          {loading && <ActivityIndicator color={RED} style={styles.emptyState} />}
+          {!loading && Boolean(loadError) && <Text style={styles.emptyStateText}>{loadError}</Text>}
+          {!displayedEvents.length && (
             <View style={styles.emptyState}>
               <Ionicons name="calendar-outline" size={24} color={GOLD} />
-              <Text style={styles.emptyStateText}>No events for this month.</Text>
+              <Text style={styles.emptyStateText}>{isSelectedDateInVisibleMonth ? 'No events on this date.' : 'No events for this month.'}</Text>
             </View>
           )}
         </View>
       </ScrollView>
 
-      <Modal
-        visible={isAddModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setAddModalVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add event</Text>
-              <TouchableOpacity onPress={() => setAddModalVisible(false)}>
-                <Ionicons name="close" size={22} color={TEXT_GRAY} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.modalDate}>
-              {selectedDate.toLocaleDateString('en-US', { dateStyle: 'full' })}
-            </Text>
-            <TextInput
-              value={newEventTitle}
-              onChangeText={setNewEventTitle}
-              placeholder="Event title"
-              placeholderTextColor={TEXT_GRAY}
-              style={styles.input}
-            />
-            <TextInput
-              value={newEventTime}
-              onChangeText={setNewEventTime}
-              placeholder="Time"
-              placeholderTextColor={TEXT_GRAY}
-              style={styles.input}
-            />
-            <TextInput
-              value={newEventLocation}
-              onChangeText={setNewEventLocation}
-              placeholder="Location"
-              placeholderTextColor={TEXT_GRAY}
-              style={styles.input}
-            />
-            <TouchableOpacity style={styles.saveButton} onPress={addEvent}>
-              <Text style={styles.saveButtonText}>Save event</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       <BottomNavigation
         activeTab="calendar"
         onHomePress={() => router.push('/dashboard')}
         onCalendarPress={() => router.push('/calendar')}
+        onAdminPress={() => router.push('/admin-control')}
+        onNewsPress={() => router.push('/news')}
       />
     </View>
   );
@@ -643,56 +603,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: TEXT_GRAY,
   },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(36, 22, 25, 0.35)',
-  },
-  modalCard: {
-    backgroundColor: CREAM,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    paddingBottom: 30,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: DARK,
-  },
-  modalDate: {
+  eventStatus: {
     marginTop: 4,
-    marginBottom: 14,
-    fontSize: 11,
-    fontWeight: '700',
-    color: TEXT_GRAY,
-  },
-  input: {
-    height: 46,
-    marginBottom: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: WHITE,
-    color: DARK,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  saveButton: {
-    height: 48,
-    marginTop: 4,
-    borderRadius: 14,
-    backgroundColor: RED,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveButtonText: {
-    color: WHITE, 
-    fontSize: 13,
-    fontWeight: '900',
+    color: RED,
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'capitalize',
   },
 });

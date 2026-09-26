@@ -66,7 +66,7 @@ export default function LoginScreen() {
 
       setAuthSession(result);
 
-      router.replace('/dashboard');
+      router.replace(result.user.role === 'admin' ? '/admin-control' : '/dashboard');
     } catch (error) {
       Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Unable to connect to the backend.');
     } finally {

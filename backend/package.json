@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "migrate:admin-events": "node scripts/apply-admin-event-migration.js",
+    "migrate:announcement-link": "node scripts/apply-announcement-link-migration.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

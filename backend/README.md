@@ -4,7 +4,15 @@
 
 1. Run the MySQL schema from the previous setup in MySQL Workbench. The backend expects `users`, `events`, and `announcements` tables.
 2. Copy `.env.example` to `.env` and set the MySQL password and a strong `JWT_SECRET`.
-3. Start the API:
+3. Apply the admin event-management migration once:
+
+```powershell
+cd backend
+npm run migrate:admin-events
+```
+
+This adds scheduling and facility/area fields to the existing `events` table; it does not replace the existing `facilities` or `areas` tables.
+4. Start the API:
 
 ```powershell
 cd backend

@@ -257,23 +257,6 @@ export default function DashboardScreen() {
 
         </View>
 
-        {currentUser?.role === 'admin' && (
-          <TouchableOpacity
-            activeOpacity={0.85}
-            style={styles.adminMenuCard}
-            onPress={() => router.push('/admin-control')}
-          >
-            <View style={styles.adminMenuIcon}>
-              <Ionicons name="settings-outline" size={22} color={RED} />
-            </View>
-            <View style={styles.adminMenuText}>
-              <Text style={styles.adminMenuTitle}>Admin Control Panel</Text>
-              <Text style={styles.adminMenuSubtitle}>Manage students, events, and requests</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={RED} />
-          </TouchableOpacity>
-        )}
-
         {/* ===================================================
             SCHOOL EVENTS TITLE
         =================================================== */}
@@ -658,6 +641,8 @@ export default function DashboardScreen() {
       <BottomNavigation
         activeTab="home"
         onCalendarPress={() => router.push('/calendar')}
+        onAdminPress={() => router.push('/admin-control')}
+        onNewsPress={() => router.push('/news')}
       />
 
     </View>
