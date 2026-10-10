@@ -1,6 +1,6 @@
 import React from 'react';
-import RoleDashboard from '../components/RoleDashboard';
+import { Redirect } from 'expo-router';
 
 export default function FacultyScreen() {
-  return <RoleDashboard role="faculty" />;
+  return <Redirect href="/dashboard" />;
 }

@@ -19,6 +19,60 @@ const pool = mysql.createPool({
   connectionLimit: 10,
 });
 
+const DEFAULT_USER_SETTINGS = {
+  theme: 'system',
+  pushNotifications: true,
+  emailNotifications: true,
+  language: 'en',
+};
+
+const normalizeUserSettings = (input) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { error: 'Settings are required.' };
+  }
+  const theme = typeof input.theme === 'string' ? input.theme.toLowerCase() : DEFAULT_USER_SETTINGS.theme;
+  const pushNotifications = input.pushNotifications !== undefined ? Boolean(input.pushNotifications) : DEFAULT_USER_SETTINGS.pushNotifications;
+  const emailNotifications = input.emailNotifications !== undefined ? Boolean(input.emailNotifications) : DEFAULT_USER_SETTINGS.emailNotifications;
+  const language = typeof input.language === 'string' && input.language.trim() ? input.language.trim() : DEFAULT_USER_SETTINGS.language;
+  if (!['light', 'dark', 'system'].includes(theme)) {
+    return { error: 'Theme must be light, dark, or system.' };
+  }
+  return {
+    theme,
+    pushNotifications,
+    emailNotifications,
+    language,
+  };
+};
+
+const ensureUserSettingsRow = async (connection, userId) => {
+  const [existing] = await connection.query('SELECT user_id FROM user_settings WHERE user_id = ? FOR UPDATE', [userId]);
+  if (!existing.length) {
+    await connection.query(
+      'INSERT INTO user_settings (user_id, theme, push_notifications, email_notifications, language) VALUES (?, ?, ?, ?, ?)',
+      [userId, DEFAULT_USER_SETTINGS.theme, DEFAULT_USER_SETTINGS.pushNotifications ? 1 : 0, DEFAULT_USER_SETTINGS.emailNotifications ? 1 : 0, DEFAULT_USER_SETTINGS.language]
+    );
+  }
+};
+
+const ensureUserSettingsTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_settings (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL UNIQUE,
+      theme ENUM('light', 'dark', 'system') NOT NULL DEFAULT 'system',
+      push_notifications TINYINT(1) NOT NULL DEFAULT 1,
+      email_notifications TINYINT(1) NOT NULL DEFAULT 1,
+      language VARCHAR(20) NOT NULL DEFAULT 'en',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_user_settings_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    ) ENGINE=InnoDB
+  `);
+};
+
+await ensureUserSettingsTable();
+
 app.use(cors());
 app.use(express.json());
 
@@ -71,6 +125,56 @@ const parseEventSchedule = ({ startDate, startTime, endDate, endTime }) => {
     return { error: 'End date and time must be later than start date and time.' };
   }
   return { start, end };
+};
+
+const normalizeStudentInformation = (input) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { error: 'Student personal and academic information is required.' };
+  }
+  const fields = {
+    firstName: { column: 'first_name', max: 100, required: true },
+    middleName: { column: 'middle_name', max: 100 },
+    lastName: { column: 'last_name', max: 100, required: true },
+    suffix: { column: 'suffix', max: 20 },
+    dateOfBirth: { column: 'date_of_birth', max: 10, required: true },
+    gender: { column: 'gender', max: 20, required: true },
+    street: { column: 'street', max: 100 },
+    barangay: { column: 'barangay', max: 100 },
+    city: { column: 'city', max: 100 },
+    province: { column: 'province', max: 100 },
+    postalCode: { column: 'postal_code', max: 10 },
+    course: { column: 'course', max: 100, required: true },
+    department: { column: 'department', max: 100 },
+    yearLevel: { column: 'year_level', max: 30, required: true },
+    section: { column: 'section', max: 50 },
+    schoolYear: { column: 'school_year', max: 20, required: true },
+    semester: { column: 'semester', max: 30, required: true },
+  };
+  const values = {};
+  for (const [key, field] of Object.entries(fields)) {
+    const raw = input[key];
+    const value = typeof raw === 'string' ? raw.trim() : '';
+    if (field.required && !value) return { error: `${key} is required.` };
+    if (value.length > field.max) return { error: `${key} must be ${field.max} characters or fewer.` };
+    values[field.column] = value || null;
+  }
+  const date = values.date_of_birth;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Enter date of birth as YYYY-MM-DD.' };
+  const [year, month, day] = date.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    return { error: 'Enter a valid date of birth.' };
+  }
+  const fullName = [values.first_name, values.middle_name, values.last_name, values.suffix]
+    .filter(Boolean)
+    .join(' ');
+  if (fullName.length > 150) return { error: 'Student full name must be 150 characters or fewer.' };
+  return { values, fullName };
+};
+
+const toSqlDateTime = (value) => {
+  if (!(value instanceof Date)) return String(value).replace('T', ' ').slice(0, 19);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')} ${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}:${String(value.getSeconds()).padStart(2, '0')}`;
 };
 
 const normalizeEventInput = (body) => {
@@ -137,7 +241,8 @@ const findEventConflict = async (connection, event, start, end, excludedEventId 
   const [rows] = await connection.query(
     `SELECT event_id FROM events
      WHERE status IN ('scheduled', 'ongoing')
-       AND start_datetime < ? AND end_datetime > ?
+       AND COALESCE(start_datetime, TIMESTAMP(event_date, start_time)) < ?
+       AND COALESCE(end_datetime, TIMESTAMP(event_date, end_time)) > ?
        AND ${resourceClause}${excludeClause}
      LIMIT 1 FOR UPDATE`,
     params
@@ -216,6 +321,207 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+app.get('/api/profile', requireAuth, async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await ensureUserSettingsRow(connection, req.user.userId);
+    const [rows] = await connection.query(
+      `SELECT u.user_id, u.full_name, u.email, u.role,
+              si.first_name, si.middle_name, si.last_name, si.suffix,
+              DATE_FORMAT(si.date_of_birth, '%Y-%m-%d') AS date_of_birth, si.gender,
+              si.street, si.barangay, si.city, si.province, si.postal_code,
+              si.course, si.department, si.year_level, si.section, si.school_year, si.semester,
+              us.theme, us.push_notifications, us.email_notifications, us.language
+       FROM users u
+       LEFT JOIN student_information si ON si.user_id = u.user_id
+       LEFT JOIN user_settings us ON us.user_id = u.user_id
+       WHERE u.user_id = ? AND u.is_active = TRUE`,
+      [req.user.userId]
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Profile not found.' });
+    const row = rows[0];
+    const settings = {
+      theme: row.theme || DEFAULT_USER_SETTINGS.theme,
+      pushNotifications: row.push_notifications !== null ? Boolean(row.push_notifications) : DEFAULT_USER_SETTINGS.pushNotifications,
+      emailNotifications: row.email_notifications !== null ? Boolean(row.email_notifications) : DEFAULT_USER_SETTINGS.emailNotifications,
+      language: row.language || DEFAULT_USER_SETTINGS.language,
+    };
+    return res.json({
+      id: row.user_id,
+      name: row.full_name,
+      email: row.email,
+      role: row.role,
+      settings,
+      studentInformation: row.role === 'student' && row.first_name !== null ? {
+        firstName: row.first_name,
+        middleName: row.middle_name,
+        lastName: row.last_name,
+        suffix: row.suffix,
+        dateOfBirth: row.date_of_birth,
+        gender: row.gender,
+        street: row.street,
+        barangay: row.barangay,
+        city: row.city,
+        province: row.province,
+        postalCode: row.postal_code,
+        course: row.course,
+        department: row.department,
+        yearLevel: row.year_level,
+        section: row.section,
+        schoolYear: row.school_year,
+        semester: row.semester,
+      } : null,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Unable to load profile.' });
+  } finally {
+    connection.release();
+  }
+});
+
+app.patch('/api/profile', requireAuth, async (req, res) => {
+  let studentInformation = null;
+  if (req.body.studentInformation !== undefined) {
+    if (req.user.role !== 'student') return res.status(403).json({ message: 'Student information is only available to student accounts.' });
+    studentInformation = normalizeStudentInformation(req.body.studentInformation);
+    if (studentInformation.error) return res.status(400).json({ message: studentInformation.error });
+  }
+  const updates = [];
+  const values = [];
+  if (req.body.fullName !== undefined) {
+    const fullName = typeof req.body.fullName === 'string' ? req.body.fullName.trim() : '';
+    if (!fullName) return res.status(400).json({ message: 'Name is required.' });
+    if (fullName.length > 255) return res.status(400).json({ message: 'Name must be 255 characters or fewer.' });
+    updates.push('full_name = ?');
+    values.push(fullName);
+  }
+  if (req.body.email !== undefined) {
+    const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address.' });
+    }
+    if (email.length > 255) return res.status(400).json({ message: 'Email must be 255 characters or fewer.' });
+    updates.push('email = ?');
+    values.push(email);
+  }
+  if (req.body.password !== undefined && req.body.password !== '') {
+    if (typeof req.body.password !== 'string' || req.body.password.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters.' });
+    }
+    updates.push('password_hash = ?');
+    values.push(await bcrypt.hash(req.body.password, 10));
+  }
+  if (studentInformation) {
+    updates.push('full_name = ?');
+    values.push(studentInformation.fullName);
+  }
+  let settingsChanged = false;
+  if (req.body.settings && typeof req.body.settings === 'object') {
+    const settings = normalizeUserSettings(req.body.settings);
+    if (settings.error) return res.status(400).json({ message: settings.error });
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [existing] = await connection.query('SELECT user_id FROM user_settings WHERE user_id = ? FOR UPDATE', [req.user.userId]);
+      if (existing.length) {
+        await connection.query(
+          `UPDATE user_settings SET theme = ?, push_notifications = ?, email_notifications = ?, language = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+          [settings.theme, settings.pushNotifications ? 1 : 0, settings.emailNotifications ? 1 : 0, settings.language, req.user.userId]
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO user_settings (user_id, theme, push_notifications, email_notifications, language) VALUES (?, ?, ?, ?, ?)`,
+          [req.user.userId, settings.theme, settings.pushNotifications ? 1 : 0, settings.emailNotifications ? 1 : 0, settings.language]
+        );
+      }
+      settingsChanged = true;
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+  if (!updates.length && !settingsChanged) return res.status(400).json({ message: 'Provide a name, email, password, or settings to update.' });
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    values.push(req.user.userId);
+    await connection.query(
+      `UPDATE users SET ${updates.join(', ')} WHERE user_id = ? AND is_active = TRUE`,
+      values
+    );
+    const [accountRows] = await connection.query(
+      'SELECT user_id FROM users WHERE user_id = ? AND is_active = TRUE FOR UPDATE',
+      [req.user.userId]
+    );
+    if (!accountRows.length) {
+      await connection.rollback();
+      return res.status(404).json({ message: 'Profile not found.' });
+    }
+    if (studentInformation) {
+      const studentColumns = Object.keys(studentInformation.values);
+      const studentValues = studentColumns.map((column) => studentInformation.values[column]);
+      const [existing] = await connection.query(
+        'SELECT id FROM student_information WHERE user_id = ? FOR UPDATE',
+        [req.user.userId]
+      );
+      if (existing.length) {
+        await connection.query(
+          `UPDATE student_information SET ${studentColumns.map((column) => `\`${column}\` = ?`).join(', ')} WHERE user_id = ?`,
+          [...studentValues, req.user.userId]
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO student_information (user_id, ${studentColumns.map((column) => `\`${column}\``).join(', ')})
+           VALUES (?, ${studentColumns.map(() => '?').join(', ')})`,
+          [req.user.userId, ...studentValues]
+        );
+      }
+    }
+    const [rows] = await connection.query(
+      'SELECT user_id, full_name, email, role FROM users WHERE user_id = ?',
+      [req.user.userId]
+    );
+    await connection.commit();
+    return res.json({
+      id: rows[0].user_id,
+      name: rows[0].full_name,
+      email: rows[0].email,
+      role: rows[0].role,
+      studentInformation: studentInformation ? {
+        firstName: studentInformation.values.first_name,
+        middleName: studentInformation.values.middle_name,
+        lastName: studentInformation.values.last_name,
+        suffix: studentInformation.values.suffix,
+        dateOfBirth: studentInformation.values.date_of_birth,
+        gender: studentInformation.values.gender,
+        street: studentInformation.values.street,
+        barangay: studentInformation.values.barangay,
+        city: studentInformation.values.city,
+        province: studentInformation.values.province,
+        postalCode: studentInformation.values.postal_code,
+        course: studentInformation.values.course,
+        department: studentInformation.values.department,
+        yearLevel: studentInformation.values.year_level,
+        section: studentInformation.values.section,
+        schoolYear: studentInformation.values.school_year,
+        semester: studentInformation.values.semester,
+      } : null,
+    });
+  } catch (error) {
+    await connection.rollback();
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That email is already registered.' });
+    console.error(error);
+    return res.status(500).json({ message: 'Unable to update profile.' });
+  } finally {
+    connection.release();
+  }
+});
+
 app.get('/api/events', requireAuth, async (req, res) => {
   try {
     const [events] = await pool.query(
@@ -236,6 +542,37 @@ app.get('/api/events', requireAuth, async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Unable to load events.' });
+  }
+});
+
+app.get('/api/facilities', requireAuth, requireRole('admin', 'faculty'), async (_req, res) => {
+  try {
+    const [facilities] = await pool.query(
+      "SELECT facility_id, facility_name FROM facilities WHERE status = 'active' ORDER BY facility_name"
+    );
+    return res.json(facilities);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Unable to load facilities.' });
+  }
+});
+
+app.get('/api/facilities/:facilityId/areas', requireAuth, requireRole('admin', 'faculty'), async (req, res) => {
+  const facilityId = Number(req.params.facilityId);
+  if (!Number.isInteger(facilityId) || facilityId < 1) return res.status(400).json({ message: 'Invalid facility.' });
+  try {
+    const [areas] = await pool.query(
+      `SELECT a.area_id, a.area_name
+       FROM areas a
+       JOIN facilities f ON f.facility_id = a.facility_id
+       WHERE a.facility_id = ? AND a.status = 'active' AND f.status = 'active'
+       ORDER BY a.area_name`,
+      [facilityId]
+    );
+    return res.json(areas);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Unable to load facility areas.' });
   }
 });
 
@@ -705,30 +1042,55 @@ app.get('/api/admin/students', requireAuth, requireRole('admin'), async (_req, r
 
 app.post('/api/admin/students', requireAuth, requireRole('admin'), async (req, res) => {
   const { fullName, email, password, role = 'student' } = req.body;
-  if (!fullName || !email || !password) {
-    return res.status(400).json({ message: 'Name, email, and password are required.' });
-  }
   if (!['admin', 'faculty', 'student'].includes(role)) {
     return res.status(400).json({ message: 'Role must be admin, faculty, or student.' });
   }
+  if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || !password) {
+    return res.status(400).json({ message: 'A valid email and password are required.' });
+  }
+  if (password.length < 8) return res.status(400).json({ message: 'Password must be at least 8 characters.' });
+  if (email.trim().length > 150) return res.status(400).json({ message: 'Email must be 150 characters or fewer.' });
+  const normalizedStudent = role === 'student'
+    ? normalizeStudentInformation(req.body.studentInformation)
+    : null;
+  if (normalizedStudent?.error) return res.status(400).json({ message: normalizedStudent.error });
+  const accountName = role === 'student'
+    ? normalizedStudent.fullName
+    : typeof fullName === 'string' ? fullName.trim() : '';
+  if (!accountName) return res.status(400).json({ message: 'Name is required.' });
+  if (accountName.length > 150) return res.status(400).json({ message: 'Name must be 150 characters or fewer.' });
 
+  const connection = await pool.getConnection();
   try {
+    await connection.beginTransaction();
     const passwordHash = await bcrypt.hash(password, 10);
-    const [result] = await pool.query(
+    const [result] = await connection.query(
       `INSERT INTO users (full_name, email, password_hash, role)
         VALUES (?, ?, ?, ?)`,
-            [fullName.trim(), email.trim().toLowerCase(), passwordHash, role]
+      [accountName, email.trim().toLowerCase(), passwordHash, role]
     );
+    if (normalizedStudent) {
+      const columns = Object.keys(normalizedStudent.values);
+      await connection.query(
+        `INSERT INTO student_information (user_id, ${columns.map((column) => `\`${column}\``).join(', ')})
+         VALUES (?, ${columns.map(() => '?').join(', ')})`,
+        [result.insertId, ...columns.map((column) => normalizedStudent.values[column])]
+      );
+    }
+    await connection.commit();
     return res.status(201).json({
       studentId: result.insertId,
       role,
     });
   } catch (error) {
+    await connection.rollback();
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ message: 'That email is already registered.' });
     }
     console.error(error);
     return res.status(500).json({ message: 'Unable to create student.' });
+  } finally {
+    connection.release();
   }
 });
 
@@ -783,9 +1145,15 @@ app.get('/api/admin/requests', requireAuth, requireRole('admin'), async (_req, r
   try {
     const [requests] = await pool.query(
       `SELECT r.request_id, r.user_id, r.request_type, r.subject, r.description, r.status,
+              r.event_start_datetime, r.event_end_datetime, r.event_location_type,
+              r.event_facility_id, f.facility_name AS event_facility_name,
+              r.event_area_id, a.area_name AS event_area_name, r.event_space_type,
+              r.event_location_name, r.event_expected_attendees,
               r.created_at, u.full_name AS requester_name, u.email AS requester_email
        FROM requests r JOIN users u ON u.user_id = r.user_id
-       WHERE r.status = 'pending' ORDER BY r.created_at DESC`
+       LEFT JOIN facilities f ON f.facility_id = r.event_facility_id
+       LEFT JOIN areas a ON a.area_id = r.event_area_id
+       ORDER BY r.created_at DESC`
     );
     return res.json(requests);
   } catch (error) {
@@ -794,36 +1162,216 @@ app.get('/api/admin/requests', requireAuth, requireRole('admin'), async (_req, r
   }
 });
 
+app.get('/api/event-requests/mine', requireAuth, requireRole('faculty'), async (req, res) => {
+  try {
+    const [requests] = await pool.query(
+      `SELECT r.request_id, r.subject, r.description, r.status,
+              r.event_start_datetime, r.event_end_datetime, r.event_location_type,
+              f.facility_name AS event_facility_name, a.area_name AS event_area_name,
+              r.event_space_type, r.event_location_name, r.event_expected_attendees,
+              r.created_at, r.reviewed_at
+       FROM requests r
+       LEFT JOIN facilities f ON f.facility_id = r.event_facility_id
+       LEFT JOIN areas a ON a.area_id = r.event_area_id
+       WHERE r.user_id = ? AND r.request_type = 'event'
+       ORDER BY r.created_at DESC`,
+      [req.user.userId]
+    );
+    return res.json(requests);
+  } catch (error) {
+    console.error(error);
+    if (error.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(503).json({ message: 'Event-request database fields are missing. In the backend folder, run: npm run migrate:faculty-event-requests' });
+    }
+    return res.status(500).json({ message: 'Unable to load your event requests.' });
+  }
+});
+
+app.post('/api/event-requests', requireAuth, requireRole('faculty'), async (req, res) => {
+  const event = normalizeEventInput(req.body);
+  if (event.error) return res.status(400).json({ message: event.error });
+  const schedule = parseEventSchedule(event);
+  if (schedule.error) return res.status(400).json({ message: schedule.error });
+  if (event.eventName.length > 150) return res.status(400).json({ message: 'Event name must be 150 characters or fewer.' });
+  if (event.purpose && event.purpose.length > 5000) return res.status(400).json({ message: 'Purpose must be 5000 characters or fewer.' });
+  if (event.locationName && event.locationName.length > 150) {
+    return res.status(400).json({ message: 'Location name must be 150 characters or fewer.' });
+  }
+
+  try {
+    if (event.locationType === 'indoor') {
+      const [facilities] = await pool.query(
+        "SELECT facility_id FROM facilities WHERE facility_id = ? AND status = 'active'",
+        [event.facilityId]
+      );
+      if (!facilities.length) return res.status(400).json({ message: 'Select an active facility.' });
+      if (event.spaceType === 'specific_area') {
+        const [areas] = await pool.query(
+          "SELECT area_id FROM areas WHERE area_id = ? AND facility_id = ? AND status = 'active'",
+          [event.areaId, event.facilityId]
+        );
+        if (!areas.length) return res.status(400).json({ message: 'Select an active area belonging to this facility.' });
+      }
+    }
+    const [result] = await pool.query(
+      `INSERT INTO requests
+        (user_id, request_type, subject, description, status, event_start_datetime,
+         event_end_datetime, event_location_type, event_facility_id, event_area_id,
+         event_space_type, event_location_name, event_expected_attendees)
+       VALUES (?, 'event', ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      [
+        req.user.userId,
+        event.eventName,
+        event.purpose || '',
+        schedule.start,
+        schedule.end,
+        event.locationType,
+        event.facilityId,
+        event.areaId,
+        event.spaceType,
+        event.locationName,
+        event.expectedAttendees,
+      ]
+    );
+    return res.status(201).json({ requestId: result.insertId, status: 'pending' });
+  } catch (error) {
+    console.error('Faculty event request insert failed:', error);
+    if (error.code === 'ER_BAD_FIELD_ERROR' || error.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ message: 'The event-request database schema is not ready. In the backend folder, run: npm run migrate:faculty-event-requests' });
+    }
+    if (error.code === 'ER_NO_DEFAULT_FOR_FIELD' || error.code === 'ER_BAD_NULL_ERROR') {
+      return res.status(503).json({ message: 'The event-request database schema is missing required fields. In the backend folder, run: npm run migrate:faculty-event-requests' });
+    }
+    return res.status(500).json({
+      message: error.code
+        ? `Unable to submit event request (database error: ${error.code}). Check the backend log for details.`
+        : 'Unable to submit event request. Check the backend log for details.',
+    });
+  }
+});
+
 app.patch('/api/admin/requests/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { status } = req.body;
   if (!['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ message: 'Status must be approved or rejected.' });
   }
+  const requestId = Number(req.params.id);
+  if (!Number.isInteger(requestId) || requestId < 1) return res.status(400).json({ message: 'Invalid request.' });
 
   const connection = await pool.getConnection();
+  let lockAcquired = false;
   try {
     await connection.beginTransaction();
     const [rows] = await connection.query(
-      'SELECT request_id, request_type, subject, description, user_id FROM requests WHERE request_id = ? FOR UPDATE',
-      [req.params.id]
+      `SELECT request_id, request_type, subject, description, user_id, status,
+              event_start_datetime, event_end_datetime, event_location_type,
+              event_facility_id, event_area_id, event_space_type, event_location_name,
+              event_expected_attendees
+       FROM requests WHERE request_id = ? FOR UPDATE`,
+      [requestId]
     );
     const request = rows[0];
     if (!request) {
       await connection.rollback();
       return res.status(404).json({ message: 'Request not found.' });
     }
+    if (request.status !== 'pending') {
+      await connection.rollback();
+      return res.status(409).json({ message: 'This request has already been reviewed.' });
+    }
+
+    if (status === 'approved' && request.request_type === 'event' && request.event_start_datetime && request.event_end_datetime) {
+      const event = {
+        locationType: request.event_location_type,
+        facilityId: request.event_facility_id,
+        areaId: request.event_area_id,
+        spaceType: request.event_space_type,
+        locationName: request.event_location_name,
+      };
+      const start = toSqlDateTime(request.event_start_datetime);
+      const end = toSqlDateTime(request.event_end_datetime);
+      await withScheduleLock(connection);
+      lockAcquired = true;
+      if (event.locationType === 'indoor') {
+        const [facilities] = await connection.query(
+          "SELECT facility_id FROM facilities WHERE facility_id = ? AND status = 'active' FOR UPDATE",
+          [event.facilityId]
+        );
+        if (!facilities.length) {
+          await connection.rollback();
+          return res.status(409).json({ message: 'The requested facility is no longer active.' });
+        }
+        if (event.spaceType === 'specific_area') {
+          const [areas] = await connection.query(
+            "SELECT area_id FROM areas WHERE area_id = ? AND facility_id = ? AND status = 'active' FOR UPDATE",
+            [event.areaId, event.facilityId]
+          );
+          if (!areas.length) {
+            await connection.rollback();
+            return res.status(409).json({ message: 'The requested area is no longer active.' });
+          }
+        }
+      }
+      const conflict = await findEventConflict(connection, event, start, end);
+      if (conflict) {
+        await connection.rollback();
+        return res.status(409).json({ message: 'The requested location is already booked during that time.' });
+      }
+    }
 
     await connection.query(
       `UPDATE requests SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE request_id = ?`,
-      [status, req.user.userId, req.params.id]
+      [status, req.user.userId, requestId]
     );
 
     if (status === 'approved' && request.request_type === 'event') {
-      await connection.query(
-        `INSERT INTO events (title, description, event_date, created_by, status)
-         VALUES (?, ?, CURDATE(), ?, 'published')`,
-        [request.subject, request.description, req.user.userId]
-      );
+      if (request.event_start_datetime && request.event_end_datetime) {
+        const start = toSqlDateTime(request.event_start_datetime);
+        const end = toSqlDateTime(request.event_end_datetime);
+        const event = {
+          locationType: request.event_location_type,
+          facilityId: request.event_facility_id,
+          areaId: request.event_area_id,
+          spaceType: request.event_space_type,
+          locationName: request.event_location_name,
+        };
+        const legacyLocation = event.locationType === 'indoor'
+          ? (event.areaId ? null : 'Entire facility')
+          : event.locationName;
+        await connection.query(
+          `INSERT INTO events
+            (request_id, event_name, title, description, purpose, location_type, facility_id,
+             area_id, space_type, location_name, start_datetime, end_datetime, event_date,
+             start_time, end_time, location, expected_attendees, created_by, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE(?), TIME(?), TIME(?), ?, ?, ?, 'scheduled')`,
+          [
+            requestId,
+            request.subject,
+            request.subject,
+            request.description,
+            request.description,
+            event.locationType,
+            event.facilityId,
+            event.areaId,
+            event.spaceType,
+            event.locationName,
+            start,
+            end,
+            start,
+            start,
+            end,
+            legacyLocation,
+            request.event_expected_attendees,
+            req.user.userId,
+          ]
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO events (title, description, event_date, created_by, status)
+           VALUES (?, ?, CURDATE(), ?, 'scheduled')`,
+          [request.subject, request.description, req.user.userId]
+        );
+      }
     }
 
     await connection.commit();
@@ -833,6 +1381,9 @@ app.patch('/api/admin/requests/:id', requireAuth, requireRole('admin'), async (r
     console.error(error);
     return res.status(500).json({ message: 'Unable to review request.' });
   } finally {
+    if (lockAcquired) {
+      try { await releaseScheduleLock(connection); } catch (error) { console.error(error); }
+    }
     connection.release();
   }
 });

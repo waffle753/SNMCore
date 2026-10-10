@@ -136,7 +136,7 @@ export default function AdminEventManagement({ mode = 'all' }: AdminEventManagem
   }, []);
 
   const loadFacilities = useCallback(async () => {
-    const response = await fetch(`${API_URL}/api/admin/facilities`, { headers: headers() });
+    const response = await fetch(`${API_URL}/api/facilities`, { headers: headers() });
     const result = await response.json();
     if (!response.ok) throw new Error(result.message || 'Unable to load facilities.');
     setFacilities(result);
@@ -167,13 +167,15 @@ export default function AdminEventManagement({ mode = 'all' }: AdminEventManagem
       setAreas([]);
       return;
     }
-    fetch(`${API_URL}/api/admin/facilities/${form.facilityId}/areas`, { headers: headers() })
+    let active = true;
+    fetch(`${API_URL}/api/facilities/${form.facilityId}/areas`, { headers: headers() })
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || 'Unable to load areas.');
-        setAreas(result);
+        if (active) setAreas(result);
       })
-      .catch((error: unknown) => Alert.alert('Load failed', error instanceof Error ? error.message : 'Unable to load areas.'));
+      .catch((error: unknown) => { if (active) Alert.alert('Load failed', error instanceof Error ? error.message : 'Unable to load areas.'); });
+    return () => { active = false; };
   }, [form.facilityId, form.locationType]);
 
   const updateForm = (patch: Partial<EventForm>) => setForm((current) => ({ ...current, ...patch }));
@@ -243,7 +245,10 @@ export default function AdminEventManagement({ mode = 'all' }: AdminEventManagem
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'Unable to update facility status.');
       await Promise.all([loadFacilities(), loadManagedFacilities()]);
-      if (form.facilityId === facility.facility_id && nextStatus === 'inactive') updateForm({ facilityId: null, areaId: null });
+      if (form.facilityId === facility.facility_id && nextStatus === 'inactive') {
+        setAreas([]);
+        updateForm({ facilityId: null, areaId: null });
+      }
     } catch (error) {
       Alert.alert('Facility update failed', responseMessage(error));
     }
@@ -424,10 +429,10 @@ export default function AdminEventManagement({ mode = 'all' }: AdminEventManagem
             <TextInput value={form.expectedAttendees} onChangeText={(expectedAttendees) => updateForm({ expectedAttendees })} placeholder="Number (optional)" placeholderTextColor={colors.TEXT_GRAY} keyboardType="number-pad" style={styles.input} />
 
             <FieldLabel label="Location type" />
-            <ChoiceRow options={[['indoor', 'Indoor'], ['outdoor', 'Outdoor'], ['off_campus', 'Off Campus']]} value={form.locationType} onSelect={(value) => updateForm({ locationType: value as LocationType, facilityId: null, areaId: null, locationName: '' })} />
+            <ChoiceRow options={[['indoor', 'Indoor'], ['outdoor', 'Outdoor'], ['off_campus', 'Off Campus']]} value={form.locationType} onSelect={(value) => { setAreas([]); updateForm({ locationType: value as LocationType, facilityId: null, areaId: null, locationName: '' }); }} />
             {form.locationType === 'indoor' ? <>
               <FieldLabel label="Facility" />
-              <ChoiceDropdown options={facilities.map((facility) => ({ value: facility.facility_id, label: facility.facility_name }))} value={form.facilityId} placeholder="Select a facility" onSelect={(value) => updateForm({ facilityId: value, areaId: null })} />
+              <ChoiceDropdown options={facilities.map((facility) => ({ value: facility.facility_id, label: facility.facility_name }))} value={form.facilityId} placeholder="Select a facility" onSelect={(value) => { setAreas([]); updateForm({ facilityId: value, areaId: null }); }} />
               <FieldLabel label="Booking type" />
               <ChoiceRow options={[["specific_area", 'Specific area'], ['entire_facility', 'Entire facility']]} value={form.spaceType} onSelect={(value) => updateForm({ spaceType: value as SpaceType, areaId: null })} />
               {form.spaceType === 'specific_area' ? <>

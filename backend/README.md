@@ -12,7 +12,23 @@ npm run migrate:admin-events
 ```
 
 This adds scheduling and facility/area fields to the existing `events` table; it does not replace the existing `facilities` or `areas` tables.
-4. Start the API:
+4. Apply the faculty event-request migration once:
+
+```powershell
+cd backend
+npm run migrate:faculty-event-requests
+```
+
+This adds structured schedule and location fields to existing event requests so that approved faculty requests become fully scheduled events.
+5. Link student information records to student accounts:
+
+```powershell
+cd backend
+npm run migrate:student-information
+```
+
+New student accounts created by an admin require personal and academic information. Students can view and update these fields under Profile > Personal Information.
+6. Start the API:
 
 ```powershell
 cd backend
@@ -36,13 +52,15 @@ The login screen sends the email and password to `/api/auth/login`. The returned
 - `faculty`: `/faculty`
 - `student`: `/student`
 
-Admin and faculty can create events and announcements through the protected API. Student accounts are read-only. Creating an event can also create its announcement in the same database transaction by including `announcementMessage` in the event request.
+Admins create and manage official events; faculty can submit event requests and view their own request statuses. Admins can review all requests, and approving a scheduled faculty event request adds the requested event to the official calendar. Faculty and students cannot create or edit official events. All roles can update their own name, email, and password. Student accounts also have linked personal, address, and academic information; admins enter it when creating a student account, and students can update it from Personal Information.
 
 ## API summary
 
 - `POST /api/auth/login`
 - `GET /api/health`
 - `GET /api/events` (authenticated)
-- `POST /api/events` (admin/faculty)
+- `GET /api/profile` and `PATCH /api/profile` (authenticated)
+- `GET /api/event-requests/mine` and `POST /api/event-requests` (faculty)
+- `GET /api/facilities` and `GET /api/facilities/:facilityId/areas` (admin/faculty; areas are scoped to the selected facility)
 - `GET /api/announcements` (authenticated and filtered by audience)
 - `POST /api/announcements` (admin/faculty)

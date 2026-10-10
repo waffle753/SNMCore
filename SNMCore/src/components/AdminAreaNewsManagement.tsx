@@ -217,7 +217,7 @@ export default function AdminAreaNewsManagement({ mode }: Props) {
             </> : <>
               <TextInput value={announcementTitle} onChangeText={setAnnouncementTitle} placeholder="Title" placeholderTextColor={colors.TEXT_GRAY} maxLength={200} style={styles.input} />
               <TextInput value={announcementMessage} onChangeText={setAnnouncementMessage} placeholder="Announcement or news text" placeholderTextColor={colors.TEXT_GRAY} multiline style={[styles.input, styles.multiline]} />
-              <TextInput value={announcementExternalUrl} onChangeText={setAnnouncementExternalUrl} placeholder="Optional link (https://...)" placeholderTextColor={colors.TEXT_GRAY} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={styles.input} />
+              <TextInput value={announcementExternalUrl} onChangeText={setAnnouncementExternalUrl} placeholder="Optional Facebook page/post URL (https://...)" placeholderTextColor={colors.TEXT_GRAY} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={styles.input} />
               <Text style={styles.fieldLabel}>Audience</Text>
               <View style={styles.audienceRow}>{(['all', 'faculty', 'student'] as const).map((option) => <TouchableOpacity key={option} style={[styles.option, audience === option && styles.optionActive]} onPress={() => setAudience(option)}><Text style={[styles.optionText, audience === option && styles.optionTextActive]}>{option === 'all' ? 'Everyone' : option}</Text></TouchableOpacity>)}</View>
               <TouchableOpacity style={styles.saveButton} onPress={saveAnnouncement} disabled={saving}><Text style={styles.saveText}>{saving ? 'Saving...' : selectedAnnouncement ? 'Save changes' : 'Publish announcement'}</Text></TouchableOpacity>

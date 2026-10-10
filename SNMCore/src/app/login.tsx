@@ -45,7 +45,7 @@ export default function LoginScreen() {
     setIsSigningIn(true);
     try {
       const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL || 'http://10.1.1.181:4000'}/api/auth/login`,
+        `${process.env.EXPO_PUBLIC_API_URL || 'http://10.1.1.235:4000'}/api/auth/login`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

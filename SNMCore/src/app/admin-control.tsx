@@ -8,10 +8,11 @@ import AdminManagement from '../components/AdminManagement';
 import BottomNavigation from '../components/BottomNavigation';
 import { colors } from '../constants/theme';
 
-type AdminSection = 'menu' | 'events' | 'students' | 'facilities' | 'areas' | 'news';
+type AdminSection = 'menu' | 'events' | 'eventRequests' | 'students' | 'facilities' | 'areas' | 'news';
 
 const adminTiles = [
   { key: 'events', label: 'Manage\nEvent', icon: 'calendar-outline' },
+  { key: 'eventRequests', label: 'Manage Event\nRequests', icon: 'mail-open-outline' },
   { key: 'students', label: 'Manage\nUser', icon: 'people-outline' },
   { key: 'facilities', label: 'Manage\nFacility', icon: 'business-outline' },
   { key: 'areas', label: 'Manage\nArea', icon: 'grid-outline' },
@@ -66,6 +67,8 @@ export default function AdminControlPanel() {
           </>
         ) : section === 'events' ? (
           <AdminEventManagement mode="events" />
+        ) : section === 'eventRequests' ? (
+          <AdminManagement mode="eventRequests" />
         ) : section === 'facilities' ? (
           <AdminEventManagement mode="facilities" />
         ) : section === 'areas' ? (
@@ -73,7 +76,7 @@ export default function AdminControlPanel() {
         ) : section === 'news' ? (
           <AdminAreaNewsManagement mode="news" />
         ) : (
-          <AdminManagement />
+          <AdminManagement mode="users" />
         )}
         <View style={styles.bottomSpace} />
       </ScrollView>

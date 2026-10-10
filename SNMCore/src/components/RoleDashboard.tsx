@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { colors } from '../constants/theme';
-import { clearAuthSession, getAuthToken } from '../data/authSession';
+import { clearAuthSession, getAuthToken, getAuthUser, setAuthSession } from '../data/authSession';
+import BottomNavigation from './BottomNavigation';
 
 type Role = 'admin' | 'faculty' | 'student';
 
@@ -18,7 +19,7 @@ type Announcement = {
   published_at: string;
 };
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.1.1.181:4000';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.1.1.235:4000';
 const roleDetails = {
   admin: { title: 'Admin Dashboard', subtitle: 'Manage users, events, and announcements.', icon: 'shield-checkmark-outline' },
   faculty: { title: 'Faculty Dashboard', subtitle: 'Manage your classes and school updates.', icon: 'school-outline' },
@@ -28,8 +29,14 @@ const roleDetails = {
 export default function RoleDashboard({ role }: RoleDashboardProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [profileVisible, setProfileVisible] = useState(false);
+  const [profileName, setProfileName] = useState(getAuthUser()?.name || '');
+  const [profileEmail, setProfileEmail] = useState(getAuthUser()?.email || '');
+  const [profilePassword, setProfilePassword] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
   const details = roleDetails[role];
-  const canManage = role === 'admin' || role === 'faculty';
+  const canManage = role === 'admin';
+  const currentUser = getAuthUser();
 
   useEffect(() => {
     const loadAnnouncements = async () => {
@@ -53,6 +60,37 @@ export default function RoleDashboard({ role }: RoleDashboardProps) {
     };
     loadAnnouncements();
   }, []);
+
+  const saveProfile = async () => {
+    if (!profileName.trim() || !profileEmail.trim()) {
+      Alert.alert('Missing information', 'Name and email are required.');
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/api/profile`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${getAuthToken() || ''}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: profileName.trim(),
+          email: profileEmail.trim(),
+          ...(profilePassword ? { password: profilePassword } : {}),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Unable to update profile.');
+      setAuthSession({ token: getAuthToken() || '', user: result });
+      setProfileName(result.name);
+      setProfileEmail(result.email);
+      setProfilePassword('');
+      setProfileVisible(false);
+      Alert.alert('Profile updated', 'Your account details have been saved.');
+    } catch (error) {
+      Alert.alert('Update failed', error instanceof Error ? error.message : 'Unable to connect to the backend.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -109,7 +147,55 @@ export default function RoleDashboard({ role }: RoleDashboardProps) {
         ) : (
           <Text style={styles.emptyText}>No announcements yet.</Text>
         )}
+
+        <TouchableOpacity style={styles.profileCard} onPress={() => {
+          setProfileName(currentUser?.name || '');
+          setProfileEmail(currentUser?.email || '');
+          setProfilePassword('');
+          setProfileVisible(true);
+        }}>
+          <View style={styles.profileIcon}><Ionicons name="person-circle-outline" size={22} color={colors.RED} /></View>
+          <View style={styles.profileBody}>
+            <Text style={styles.profileTitle}>My profile</Text>
+            <Text style={styles.profileText}>{currentUser?.email || 'Update your account details'}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.TEXT_GRAY} />
+        </TouchableOpacity>
       </ScrollView>
+
+      <BottomNavigation
+        activeTab="home"
+        onHomePress={() => router.replace(role === 'faculty' ? '/faculty' : role === 'admin' ? '/admin' : '/student')}
+        onCalendarPress={() => router.push('/calendar')}
+        onAdminPress={() => router.push('/admin-control')}
+        onNewsPress={() => router.push('/news')}
+        onProfilePress={() => {
+          setProfileName(currentUser?.name || '');
+          setProfileEmail(currentUser?.email || '');
+          setProfilePassword('');
+          setProfileVisible(true);
+        }}
+      />
+
+      <Modal visible={profileVisible} transparent animationType="fade" onRequestClose={() => setProfileVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.profileModal}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Update profile</Text>
+              <TouchableOpacity onPress={() => setProfileVisible(false)}><Ionicons name="close" size={23} color={colors.TEXT_GRAY} /></TouchableOpacity>
+            </View>
+            <Text style={styles.fieldLabel}>Full name</Text>
+            <TextInput value={profileName} onChangeText={setProfileName} placeholder="Full name" placeholderTextColor={colors.TEXT_GRAY} style={styles.profileInput} />
+            <Text style={styles.fieldLabel}>Email</Text>
+            <TextInput value={profileEmail} onChangeText={setProfileEmail} keyboardType="email-address" autoCapitalize="none" placeholder="Email" placeholderTextColor={colors.TEXT_GRAY} style={styles.profileInput} />
+            <Text style={styles.fieldLabel}>New password (optional)</Text>
+            <TextInput value={profilePassword} onChangeText={setProfilePassword} secureTextEntry placeholder="At least 8 characters" placeholderTextColor={colors.TEXT_GRAY} style={styles.profileInput} />
+            <TouchableOpacity style={styles.saveProfileButton} disabled={profileSaving} onPress={() => void saveProfile()}>
+              {profileSaving ? <ActivityIndicator color={colors.WHITE} /> : <Text style={styles.saveProfileText}>Save profile</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <TouchableOpacity
         style={styles.logoutButton}
@@ -148,6 +234,19 @@ const styles = StyleSheet.create({
   announcementTitle: { color: colors.DARK, fontSize: 13, fontWeight: '900' },
   announcementMessage: { marginTop: 4, color: colors.TEXT_GRAY, fontSize: 11, lineHeight: 16 },
   emptyText: { color: colors.TEXT_GRAY, fontSize: 12 },
+  profileCard: { marginTop: 18, padding: 14, borderRadius: 15, backgroundColor: colors.WHITE, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  profileIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: colors.SOFT_GOLD, alignItems: 'center', justifyContent: 'center' },
+  profileBody: { flex: 1 },
+  profileTitle: { color: colors.DARK, fontSize: 12, fontWeight: '900' },
+  profileText: { marginTop: 3, color: colors.TEXT_GRAY, fontSize: 10 },
+  modalBackdrop: { flex: 1, padding: 20, backgroundColor: 'rgba(23,20,20,0.45)', justifyContent: 'center' },
+  profileModal: { padding: 18, borderRadius: 18, backgroundColor: colors.CREAM },
+  modalHeader: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  modalTitle: { color: colors.DARK, fontSize: 19, fontWeight: '900' },
+  fieldLabel: { marginTop: 13, marginBottom: 6, color: colors.DARK, fontSize: 11, fontWeight: '900' },
+  profileInput: { minHeight: 44, paddingHorizontal: 12, borderWidth: 1, borderColor: 'rgba(143,23,40,0.12)', borderRadius: 11, backgroundColor: colors.WHITE, color: colors.DARK, fontSize: 12 },
+  saveProfileButton: { minHeight: 45, marginTop: 18, borderRadius: 12, backgroundColor: colors.RED, alignItems: 'center', justifyContent: 'center' },
+  saveProfileText: { color: colors.WHITE, fontSize: 12, fontWeight: '900' },
   logoutButton: { position: 'absolute', right: 20, bottom: 20, flexDirection: 'row', alignItems: 'center', gap: 6 },
   logoutText: { color: colors.RED, fontSize: 12, fontWeight: '900' },
 });

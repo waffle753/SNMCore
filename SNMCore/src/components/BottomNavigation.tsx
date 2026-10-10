@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/theme';
 import { getAuthUser } from '../data/authSession';
 
 type BottomNavigationProps = {
-  activeTab?: 'home' | 'calendar' | 'admin' | 'news' | 'profile';
+  activeTab?: 'home' | 'calendar' | 'admin' | 'request' | 'news' | 'profile';
   onHomePress?: () => void;
   onCalendarPress?: () => void;
   onAdminPress?: () => void;
+  onRequestPress?: () => void;
   onNewsPress?: () => void;
   onProfilePress?: () => void;
 };
@@ -18,15 +19,19 @@ export default function BottomNavigation({
   onHomePress,
   onCalendarPress,
   onAdminPress,
+  onRequestPress,
   onNewsPress,
   onProfilePress,
 }: BottomNavigationProps) {
   const isHome = activeTab === 'home';
   const isCalendar = activeTab === 'calendar';
   const isActiveAdmin = activeTab === 'admin';
+  const isActiveRequest = activeTab === 'request';
   const isNews = activeTab === 'news';
   const isProfile = activeTab === 'profile';
-  const isAdmin = getAuthUser()?.role === 'admin';
+  const userRole = getAuthUser()?.role;
+  const isAdmin = userRole === 'admin';
+  const isFaculty = userRole === 'faculty';
 
   return (
     <View style={styles.bottomNavigation}>
@@ -65,6 +70,21 @@ export default function BottomNavigation({
         </TouchableOpacity>
       )}
 
+      {isFaculty && (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Request event"
+          activeOpacity={0.8}
+          style={styles.navItem}
+          onPress={onRequestPress}
+        >
+          <View style={[styles.requestIcon, isActiveRequest && styles.requestIconActive]}>
+            <Ionicons name="add" size={27} color={colors.WHITE} />
+          </View>
+          <Text style={isActiveRequest ? styles.navTextActive : styles.navText}>Request</Text>
+        </TouchableOpacity>
+      )}
+
       <TouchableOpacity activeOpacity={0.8} style={styles.navItem} onPress={onNewsPress}>
         <View style={[styles.navIcon, isNews && styles.navIconActive]}>
           <Ionicons
@@ -86,6 +106,7 @@ export default function BottomNavigation({
         </View>
         <Text style={isProfile ? styles.navTextActive : styles.navText}>Profile</Text>
       </TouchableOpacity>
+
     </View>
   );
 }
@@ -122,6 +143,21 @@ const styles = StyleSheet.create({
     width: 46,
     height: 40,
     borderRadius: 15,
+  },
+  requestIcon: {
+    width: 42,
+    height: 42,
+    marginTop: -12,
+    borderRadius: 21,
+    backgroundColor: colors.RED,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: colors.WHITE,
+    elevation: 4,
+  },
+  requestIconActive: {
+    backgroundColor: colors.RED,
   },
   navIcon: {
     width: 39,

@@ -7,7 +7,9 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "migrate:admin-events": "node scripts/apply-admin-event-migration.js",
-    "migrate:announcement-link": "node scripts/apply-announcement-link-migration.js"
+    "migrate:faculty-event-requests": "node scripts/apply-faculty-event-requests-migration.js",
+    "migrate:announcement-link": "node scripts/apply-announcement-link-migration.js",
+    "migrate:student-information": "node scripts/apply-student-information-migration.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
